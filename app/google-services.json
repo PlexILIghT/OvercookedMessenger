@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "930199877898",
+    "project_id": "temp-98d8f",
+    "storage_bucket": "temp-98d8f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:930199877898:android:26706b17016457f63d62f3",
+        "android_client_info": {
+          "package_name": "com.plexilight.overcookedmessenger"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBYqh9_uVpiuisa3Bmqt2fy8rCuVJZ7WfU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
