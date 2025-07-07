@@ -39,7 +39,6 @@ fun RegisterScreen(
     onBack: () -> Unit
 ) {
     val auth = Firebase.auth
-    val context = LocalContext.current
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }

@@ -36,8 +36,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.google.common.collect.Iterables.limit
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.auth
 import io.getstream.chat.android.client.ChatClient
+import io.getstream.chat.android.client.api.models.QueryUsersRequest
+import io.getstream.chat.android.models.Filters
 import io.getstream.chat.android.models.User
 import java.lang.reflect.Member
 import java.time.Clock.offset
@@ -57,25 +63,14 @@ fun UserSearchScreen(
     LaunchedEffect(searchQuery) {
         if (searchQuery.length > 2) {
             isLoading = true
-            try {
-//                channelClient.queryMembers(offset, limit, filter, sort).enqueue { result ->
-//                    when (result) {
-//                        is Result.Success -> {
-//                            val members: List<Member> = result.value
-//                        }
-//                        is Result.Failure -> {
-//                            Log.e(TAG, String.format("There was an error %s", result.value), result.value.extractCause())
-//                        }
-//                    }
-//                }
-                searchResults = searchUsersInBackend(searchQuery)
+            searchResults = try {
+                searchUsers(searchQuery)
             } catch (e: Exception) {
                 Toast.makeText(context, "Search failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                emptyList()
             } finally {
                 isLoading = false
             }
-        } else {
-            searchResults = emptyList()
         }
     }
 
@@ -116,6 +111,7 @@ fun UserSearchScreen(
     }
 }
 
+
 @Composable
 fun UserListItem(
     user: User,
@@ -128,14 +124,14 @@ fun UserListItem(
             .clickable(onClick = onClick)
             .padding(16.dp)
     ) {
-//        AsyncImage(
-//            model = user.image,
-//            contentDescription = "User avatar",
-//            contentScale = ContentScale.Crop,
-//            modifier = Modifier
-//                .size(48.dp)
-//                .clip(CircleShape)
-//        )
+        AsyncImage(
+            model = user.image,
+            contentDescription = "User avatar",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+        )
 
         Spacer(modifier = Modifier.width(16.dp))
 
@@ -153,4 +149,24 @@ private fun searchUsersInBackend(query: String): List<User> {
         User(id = "user2", name = "Jane Smith", image = "https://i.postimg.cc/vHnXCRGW/jufufu.webp"),
         User(id = "user3", name = "Bob Johnson", image = "https://i.postimg.cc/vHnXCRGW/jufufu.webp"),
     ).filter { it.name.contains(query, ignoreCase = true) }
+}
+
+private suspend fun searchUsers(query: String): List<User> {
+    val request = QueryUsersRequest(
+        filter = Filters.and(
+            Filters.autocomplete("name", query),
+            Filters.ne("id", Firebase.auth.currentUser?.uid ?: "")
+        ),
+        offset = 0,
+        limit = 20
+    )
+    return client.queryUsers(request).await().users
+}
+
+fun FirebaseUser.firebaseUserToChatUser(): User {
+    return User(
+        id = uid,
+        name = displayName ?: email?.substringBefore("@") ?: "Unknown",
+        image = photoUrl?.toString() ?: "https://i.postimg.cc/vHnXCRGW/jufufu.webp"
+    )
 }

@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +37,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 
@@ -48,6 +50,7 @@ fun ProfileScreen(
     val user = auth.currentUser
     val context = LocalContext.current
     var showDeleteDialog by remember { mutableStateOf(false) }
+
 
     if (showDeleteDialog) {
         AlertDialog(
@@ -81,6 +84,7 @@ fun ProfileScreen(
         )
     }
 
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -107,14 +111,14 @@ fun ProfileScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
             ) {
-//                AsyncImage(
-//                    model = it.photoUrl?.toString() ?: "https://i.postimg.cc/vHnXCRGW/jufufu.webp",
-//                    contentDescription = "Profile picture",
-//                    contentScale = ContentScale.Crop,
-//                    modifier = Modifier
-//                        .size(120.dp)
-//                        .clip(CircleShape)
-//                )
+                AsyncImage(
+                    model = it.photoUrl?.toString() ?: "https://i.postimg.cc/vHnXCRGW/jufufu.webp",
+                    contentDescription = "Profile picture",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(120.dp)
+                        .clip(CircleShape)
+                )
 
                 Spacer(modifier = Modifier.height(16.dp))
 

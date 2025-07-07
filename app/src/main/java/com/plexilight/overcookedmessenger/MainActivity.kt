@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -28,11 +29,18 @@ import io.getstream.chat.android.client.ChatClient
 import io.getstream.chat.android.client.logger.ChatLogLevel
 import io.getstream.chat.android.compose.ui.channels.ChannelsScreen
 import io.getstream.chat.android.compose.ui.theme.ChatTheme
+import io.getstream.chat.android.compose.viewmodel.channels.ChannelViewModelFactory
+import io.getstream.chat.android.models.Channel
+import io.getstream.chat.android.models.Filters
 import io.getstream.chat.android.models.InitializationState
 import io.getstream.chat.android.models.User
+import io.getstream.chat.android.models.querysort.QuerySorter
 import io.getstream.chat.android.offline.plugin.factory.StreamOfflinePluginFactory
 import io.getstream.chat.android.state.plugin.config.StatePluginConfig
 import io.getstream.chat.android.state.plugin.factory.StreamStatePluginFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private lateinit var auth: FirebaseAuth
@@ -52,12 +60,17 @@ class MainActivity : ComponentActivity() {
         auth = Firebase.auth
 
         val offlinePluginFactory = StreamOfflinePluginFactory(appContext = applicationContext)
-        val statePluginFactory = StreamStatePluginFactory(config = StatePluginConfig(), appContext = this)
+        val statePluginFactory =
+            StreamStatePluginFactory(config = StatePluginConfig(), appContext = this)
 
         client = ChatClient.Builder("kpjpryjdzfmt", applicationContext)
             .withPlugins(offlinePluginFactory, statePluginFactory)
             .logLevel(ChatLogLevel.ALL)
             .build()
+
+        auth.currentUser?.let { firebaseUser ->
+            registerStreamUser(firebaseUser)
+        }
 
         setContent {
             val navController = rememberNavController()
@@ -109,7 +122,19 @@ class MainActivity : ComponentActivity() {
                     UserSearchScreen(
                         onBack = { navController.popBackStack() },
                         onUserSelected = { userId ->
-                            // TODO: Логика создания канала
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                val channel = getOrCreateChannel(userId)
+                                channel?.let {
+                                    withContext(Dispatchers.Main) {
+                                        startActivity(
+                                            ChannelActivity.getIntent(
+                                                this@MainActivity,
+                                                it.cid
+                                            )
+                                        )
+                                    }
+                                }
+                            }
                         }
                     )
                 }
@@ -117,14 +142,51 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun signInWithFirebase(email: String, password: String) {
-        auth.signInWithEmailAndPassword(email, password)
-            .addOnCompleteListener { task ->
-                if (!task.isSuccessful) {
-                    Log.e("Auth", "Login failed", task.exception)
-                }
+    private suspend fun getOrCreateChannel(otherUserId: String): Channel? {
+        val currentUserId = auth.currentUser?.uid ?: return null
+        val channelId = listOf(currentUserId, otherUserId).sorted().joinToString("_")
+
+        return try {
+            val channel = client.channel(
+                channelType = "messaging",
+                channelId = channelId
+            )
+
+            // Проверяем существование канала
+            val result = channel.query().await()
+            result.channel
+        } catch (e: Exception) {
+            // Если канал не существует, создаем новый
+            try {
+                client.createChannel(
+                    channelType = "messaging",
+                    channelId = channelId,
+                    memberIds = listOf(currentUserId, otherUserId),
+                    extraData = mapOf(
+                        "name" to "Direct chat",
+                        "image" to "https://i.postimg.cc/vHnXCRGW/jufufu.webp"
+                    )
+                ).await()
+            } catch (createEx: Exception) {
+                null
             }
+        } as Channel?
     }
+
+    private fun registerStreamUser(firebaseUser: FirebaseUser) {
+        val user = firebaseUser.firebaseUserToChatUser()
+        client.connectUser(
+            user = user,
+            token = client.devToken(user.id)
+        ).enqueue { result ->
+            if (result.isSuccess) {
+                Log.d("MainActivity", "User connected to Stream")
+            } else {
+                // Используем result.error().message вместо result.error()
+                Log.e("MainActivity", "Connection failed: ${result.error().message}")
+            }
+        }
+        }
 
     private fun logout() {
         auth.signOut()
@@ -163,8 +225,15 @@ class MainActivity : ComponentActivity() {
                     },
                     onHeaderActionClick = onSearchUsersClick,
                     onHeaderAvatarClick = onProfileClick,
-                    onBackPressed = { finish() }
+                    onBackPressed = { finish() },
+                    viewModelFactory = ChannelViewModelFactory(
+                        filters = Filters.and(
+                            Filters.eq("type", "messaging"),
+                            Filters.`in`("members", listOf(auth.currentUser!!.uid))
+                        )
+                    )
                 )
+
                 else -> {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -176,7 +245,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-}
 
 fun FirebaseUser.firebaseUserToChatUser(): User {
     return User(
@@ -185,3 +253,4 @@ fun FirebaseUser.firebaseUserToChatUser(): User {
         image = photoUrl?.toString() ?: "https://i.postimg.cc/vHnXCRGW/jufufu.webp"
     )
 }
+
