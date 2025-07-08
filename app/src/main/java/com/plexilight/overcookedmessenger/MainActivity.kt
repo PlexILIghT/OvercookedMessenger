@@ -4,6 +4,10 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.ktx.firestore
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,7 +29,10 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
+import com.google.firebase.firestore.firestore
 import io.getstream.chat.android.client.ChatClient
+import io.getstream.chat.android.client.api.models.QueryChannelRequest
+import io.getstream.chat.android.client.channel.ChannelClient
 import io.getstream.chat.android.client.logger.ChatLogLevel
 import io.getstream.chat.android.compose.ui.channels.ChannelsScreen
 import io.getstream.chat.android.compose.ui.theme.ChatTheme
@@ -41,12 +48,13 @@ import io.getstream.chat.android.state.plugin.factory.StreamStatePluginFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
+import kotlin.uuid.Uuid.Companion.random
 
 class MainActivity : ComponentActivity() {
     private lateinit var auth: FirebaseAuth
     private lateinit var client: ChatClient
 
-    // Определим маршруты навигации
     sealed class Screen(val route: String) {
         object Login : Screen("login")
         object Register : Screen("register")
@@ -80,7 +88,6 @@ class MainActivity : ComponentActivity() {
                 navController = navController,
                 startDestination = if (firebaseUser != null) Screen.MainChat.route else Screen.Login.route
             ) {
-                // Экран входа
                 composable(Screen.Login.route) {
                     LoginScreen(
                         onLoginSuccess = { navController.navigate(Screen.MainChat.route) },
@@ -88,7 +95,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // Экран регистрации
                 composable(Screen.Register.route) {
                     RegisterScreen(
                         onRegisterSuccess = { navController.navigate(Screen.MainChat.route) },
@@ -96,7 +102,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // Главный экран чата
                 composable(Screen.MainChat.route) {
                     MainChatScreen(
                         onProfileClick = { navController.navigate(Screen.Profile.route) },
@@ -104,7 +109,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // Экран профиля
                 composable(Screen.Profile.route) {
                     ProfileScreen(
                         onBack = { navController.popBackStack() },
@@ -117,64 +121,80 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // Экран поиска пользователей
+//                composable(Screen.UserSearch.route) {
+//                    UserSearchScreen(
+//                        onBack = { navController.popBackStack() },
+//                        onUserSelected = { userId ->
+//                            {
+//                                val myUuid = UUID.randomUUID()
+//                                val myUuidAsString = myUuid.toString()
+//
+//                                client.createChannel(
+//                                    "messaging",
+//                                    channelId = myUuidAsString,
+//                                    memberIds = listOf(giveString(), userId),
+//                                    extraData = mapOf(
+//                                        "name" to "Direct chat",
+//                                        "image" to "https://i.postimg.cc/vHnXCRGW/jufufu.webp"
+//                                    ),
+//                                )
+//
+//                            }
+//                        }
+//                    )
+//                }
+
                 composable(Screen.UserSearch.route) {
                     UserSearchScreen(
                         onBack = { navController.popBackStack() },
                         onUserSelected = { userId ->
+
                             lifecycleScope.launch(Dispatchers.IO) {
-                                val channel = getOrCreateChannel(userId)
-                                channel?.let {
+                                val currentUserId = auth.currentUser?.uid
+                                if (currentUserId == null) {
+                                    return@launch
+                                }
+
+                                val channelId = listOf(currentUserId, userId).sorted().joinToString("_")
+                                try {
+                                    val channel = client.createChannel(
+                                        channelType = "messaging",
+                                        channelId = channelId,
+                                        memberIds = listOf(currentUserId, userId),
+                                        extraData = mapOf(
+                                            "name" to "Direct chat",
+                                            "image" to "https://i.postimg.cc/vHnXCRGW/jufufu.webp",
+                                            "members" to listOf(
+                                                mapOf("userId" to currentUserId, "role" to "member"),
+                                                mapOf("userId" to userId, "role" to "member")
+                                            )
+                                        )
+                                    ).await().getOrNull()
+
                                     withContext(Dispatchers.Main) {
                                         startActivity(
                                             ChannelActivity.getIntent(
                                                 this@MainActivity,
-                                                it.cid
+                                                channel!!.cid
                                             )
                                         )
                                     }
+                                } catch (e: Exception) {
+                                    Log.e("Channel", "Error creating channel", e)
+
                                 }
                             }
                         }
                     )
                 }
+
+
             }
         }
     }
 
-    private suspend fun getOrCreateChannel(otherUserId: String): Channel? {
-        val currentUserId = auth.currentUser?.uid ?: return null
-        val channelId = listOf(currentUserId, otherUserId).sorted().joinToString("_")
-
-        return try {
-            val channel = client.channel(
-                channelType = "messaging",
-                channelId = channelId
-            )
-
-            // Проверяем существование канала
-            val result = channel.query().await()
-            result.channel
-        } catch (e: Exception) {
-            // Если канал не существует, создаем новый
-            try {
-                client.createChannel(
-                    channelType = "messaging",
-                    channelId = channelId,
-                    memberIds = listOf(currentUserId, otherUserId),
-                    extraData = mapOf(
-                        "name" to "Direct chat",
-                        "image" to "https://i.postimg.cc/vHnXCRGW/jufufu.webp"
-                    )
-                ).await()
-            } catch (createEx: Exception) {
-                null
-            }
-        } as Channel?
-    }
-
     private fun registerStreamUser(firebaseUser: FirebaseUser) {
-        val user = firebaseUser.firebaseUserToChatUser()
+        val user = firebaseUser.firebaseUserToChatUser2()
         client.connectUser(
             user = user,
             token = client.devToken(user.id)
@@ -183,10 +203,10 @@ class MainActivity : ComponentActivity() {
                 Log.d("MainActivity", "User connected to Stream")
             } else {
                 // Используем result.error().message вместо result.error()
-                Log.e("MainActivity", "Connection failed: ${result.error().message}")
+                Log.e("MainActivity", "Connection failed: ${result.getOrNull()}")
             }
         }
-        }
+    }
 
     private fun logout() {
         auth.signOut()
@@ -204,7 +224,7 @@ class MainActivity : ComponentActivity() {
         onProfileClick: () -> Unit,
         onSearchUsersClick: () -> Unit
     ) {
-        val user = auth.currentUser?.firebaseUserToChatUser()
+        val user = auth.currentUser?.firebaseUserToChatUser2()
 
         LaunchedEffect(user) {
             user?.let {
@@ -245,8 +265,9 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
 
-fun FirebaseUser.firebaseUserToChatUser(): User {
+fun FirebaseUser.firebaseUserToChatUser2(): User {
     return User(
         id = uid,
         name = displayName ?: email?.substringBefore("@") ?: "Unknown",

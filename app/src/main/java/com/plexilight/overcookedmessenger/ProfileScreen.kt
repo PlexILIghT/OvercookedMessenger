@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
+import com.google.firebase.firestore.firestore
+import kotlinx.coroutines.tasks.await
 
 @Composable
 fun ProfileScreen(
@@ -62,6 +64,8 @@ fun ProfileScreen(
                     onClick = {
                         user?.delete()?.addOnCompleteListener { task ->
                             if (task.isSuccessful) {
+
+
                                 onLogout()
                             } else {
                                 Toast.makeText(
@@ -83,6 +87,7 @@ fun ProfileScreen(
             }
         )
     }
+
 
 
     Column(

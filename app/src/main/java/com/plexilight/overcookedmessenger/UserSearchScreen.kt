@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,12 +40,13 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.google.common.collect.Iterables.limit
 import com.google.firebase.Firebase
-import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.auth.auth
+import com.google.firebase.firestore.firestore
 import io.getstream.chat.android.client.ChatClient
-import io.getstream.chat.android.client.api.models.QueryUsersRequest
-import io.getstream.chat.android.models.Filters
 import io.getstream.chat.android.models.User
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import java.lang.reflect.Member
 import java.time.Clock.offset
 import java.util.Arrays.sort
@@ -59,18 +61,29 @@ fun UserSearchScreen(
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<User>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(searchQuery) {
-        if (searchQuery.length > 2) {
+        if (searchQuery.isNotEmpty()) {
             isLoading = true
-            searchResults = try {
-                searchUsers(searchQuery)
-            } catch (e: Exception) {
-                Toast.makeText(context, "Search failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                emptyList()
-            } finally {
-                isLoading = false
+            coroutineScope.launch(Dispatchers.IO) {
+                try {
+                    val results = searchUsersInBackend(searchQuery)
+                    withContext(Dispatchers.Main) {
+                        searchResults = results
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Search failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                } finally {
+                    withContext(Dispatchers.Main) {
+                        isLoading = false
+                    }
+                }
             }
+        } else {
+            searchResults = emptyList()
         }
     }
 
@@ -99,7 +112,6 @@ fun UserSearchScreen(
             )
         }
 
-        // Результаты поиска
         LazyColumn {
             items(searchResults) { user ->
                 UserListItem(
@@ -110,7 +122,6 @@ fun UserSearchScreen(
         }
     }
 }
-
 
 @Composable
 fun UserListItem(
@@ -142,31 +153,28 @@ fun UserListItem(
     }
 }
 
-// Заглушка для поиска пользователей (реализуйте реальный поиск)
-private fun searchUsersInBackend(query: String): List<User> {
-    return listOf(
-        User(id = "user1", name = "John Doe", image = "https://i.postimg.cc/vHnXCRGW/jufufu.webp"),
-        User(id = "user2", name = "Jane Smith", image = "https://i.postimg.cc/vHnXCRGW/jufufu.webp"),
-        User(id = "user3", name = "Bob Johnson", image = "https://i.postimg.cc/vHnXCRGW/jufufu.webp"),
-    ).filter { it.name.contains(query, ignoreCase = true) }
-}
+private suspend fun searchUsersInBackend(query: String): List<User> = withContext(Dispatchers.IO) {
+    val db = Firebase.firestore
+    try {
 
-private suspend fun searchUsers(query: String): List<User> {
-    val request = QueryUsersRequest(
-        filter = Filters.and(
-            Filters.autocomplete("name", query),
-            Filters.ne("id", Firebase.auth.currentUser?.uid ?: "")
-        ),
-        offset = 0,
-        limit = 20
-    )
-    return client.queryUsers(request).await().users
-}
+        val querySnapshot = db.collection("users")
+            .whereGreaterThanOrEqualTo("name", query)
+            .whereLessThanOrEqualTo("name", query + "\uf8ff")
+            .get()
+            .await()
 
-fun FirebaseUser.firebaseUserToChatUser(): User {
-    return User(
-        id = uid,
-        name = displayName ?: email?.substringBefore("@") ?: "Unknown",
-        image = photoUrl?.toString() ?: "https://i.postimg.cc/vHnXCRGW/jufufu.webp"
-    )
+        querySnapshot.documents.mapNotNull { doc ->
+            val name = doc.getString("name") ?: ""
+            val uid = doc.getString("uid") ?: ""
+            val email = doc.getString("email") ?: ""
+
+            User(
+                id = uid,
+                name = name,
+                image = "https://i.postimg.cc/vHnXCRGW/jufufu.webp"
+            )
+        }
+    } catch (e: Exception) {
+        emptyList()
+    }
 }

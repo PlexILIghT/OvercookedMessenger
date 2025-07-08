@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import com.google.firebase.Firebase
 import com.google.firebase.auth.UserProfileChangeRequest
 import com.google.firebase.auth.auth
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.firestore
 
 @Composable
 fun RegisterScreen(
@@ -121,9 +123,7 @@ fun RegisterScreen(
 
                 auth.createUserWithEmailAndPassword(email, password)
                     .addOnCompleteListener { task ->
-                        isLoading = false
                         if (task.isSuccessful) {
-                            // Обновляем имя пользователя
                             val user = auth.currentUser
                             val profileUpdates = UserProfileChangeRequest.Builder()
                                 .setDisplayName(name)
@@ -131,13 +131,25 @@ fun RegisterScreen(
 
                             user?.updateProfile(profileUpdates)?.addOnCompleteListener {
                                 if (it.isSuccessful) {
-                                    onRegisterSuccess()
-                                } else {
-                                    errorMessage = "Failed to set name: ${it.exception?.message}"
+
+                                    val db = Firebase.firestore
+                                    val userData = hashMapOf(
+                                        "uid" to user.uid,
+                                        "name" to name,
+                                        "email" to email,
+                                        "createdAt" to FieldValue.serverTimestamp()
+                                    )
+
+                                    db.collection("users").document(user.uid)
+                                        .set(userData)
+                                        .addOnSuccessListener {
+                                            onRegisterSuccess()
+                                        }
+                                        .addOnFailureListener { e ->
+                                            errorMessage = "Failed to save user: ${e.message}"
+                                        }
                                 }
                             }
-                        } else {
-                            errorMessage = "Registration failed: ${task.exception?.message}"
                         }
                     }
             },
